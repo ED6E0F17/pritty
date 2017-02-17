@@ -55,40 +55,67 @@ unsigned Microseconds( void ) {
 }
 
 int main( int argc, char *argv[] ) {
-	int i, j, k, ret, loops, freq, log2_N, jobs, N, mb = mbox_open();
-	unsigned t[2];
+	int mb = mbox_open();
+	unsigned int i, j, jobs, N, log2_N, t[2];
 	struct GPU_FFT_COMPLEX *base;
 	struct GPU_FFT *fft;
+
+	for (int c = 1; c < argc; c++)
+		printf("Commandline arg:%s\n", argv[c]);
 
 	log2_N = 9;
 	jobs   = 4;  // oversample 4x per bit period
 	N = 1 << log2_N; // FFT length
 
-	ret = gpu_fft_prepare( mb, GPU_FFT_FWD, jobs, &fft ); // call once
-
+	int ret = gpu_fft_prepare( mb, GPU_FFT_FWD, jobs, &fft ); // call once
 	switch ( ret ) {
 	case -1: printf( "Unable to enable V3D. Please check your firmware is up to date.\n" ); return -1;
-	case -2: printf( "log2_N=%d not supported.  Try between 8 and 22.\n", log2_N );         return -1;
+	case -2: printf( "log2_N=%d not supported.  Try between 8 and 10.\n", log2_N );         return -1;
 	case -3: printf( "Out of memory.  Try a smaller batch or increase GPU memory.\n" );     return -1;
 	case -4: printf( "Unable to map Videocore peripherals into ARM memory space.\n" );      return -1;
 	case -5: printf( "Can't open libbcm_host.\n" );                                         return -1;
 	}
 
-	for ( j = 0; j < jobs; j++ ) {
-		base = fft->in + j * fft->step;   // input buffer
-		int freq = 5;
-		for ( i = 0; i < N; i++ ) {
-			base[i].re = sin( 2.0 * GPU_FFT_PI * freq * i / N );
-			base[i].im = cos( 2.0 * GPU_FFT_PI * freq * i / N );
-		}
+	int freq = 50;
+	float raisedcos[256];
+	for ( j = 0; j < 256; j++ )
+		raisedcos[j] = 1.0f + cosf( GPU_FFT_PI * ((float)j / 128.0f - 1.0f) );
+	float I[N], Q[N];
+	for ( j = 0; j < N; j++ ) {
+		I[j] = sinf( 2.0 * GPU_FFT_PI * freq * j / N );
+		Q[j] = 0;
 	}
+
 	usleep( 1 );   // Yield to OS
 	t[0] = Microseconds();
-	gpu_fft_execute( fft );   // call one or many times
-	t[1] = Microseconds();
 
-	// for (j=0; j<jobs; j++) { base = fft->out + j*fft->step; } // output buffer
-	printf( "FFT usecs = %d\n", ( t[1] - t[0] ) / jobs );
+	for ( j = 0; j < jobs; j++ ) {
+		base = fft->in + j * fft->step;   // input buffer
+		for ( i = 0; i < 256; i++ ) {
+			base[i].re = raisedcos[i] * I[i + 40 * j];
+			base[i + 256].re = 0;
+			base[i].im = raisedcos[i] * Q[i + 40 * j];
+			base[i + 256].im = 0;
+		}
+	}
+
+	gpu_fft_execute( fft );   // call one or many times
+
+	unsigned int fftout[N * jobs];
+	unsigned int count = 0;
+	for (j=0; j<jobs; j++) {
+		base = fft->out + j*fft->step;
+		for ( i = 0; i < N; i++ ) {
+			float i2q2 = base[i].re * base[i].re +  base[i].im * base[i].im;
+			fftout[count++] = (unsigned int)sqrtf(i2q2);
+		}
+	} // output buffer
+
+	t[1] = Microseconds();
+	for ( i = 0; i < N; i++ )
+		printf ("%d,", fftout[i]);
+	printf( "\nFFT usecs = %d\n", ( t[1] - t[0] ) / jobs );
+
 
 	gpu_fft_release( fft ); // Videocore memory lost if not freed !
 	return 0;

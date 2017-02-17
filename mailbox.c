@@ -244,7 +244,6 @@ int mbox_open() {
    file_desc = open(DEVICE_FILE_NAME, 0);
    if (file_desc < 0) {
       printf("Can't open device file: %s\n Try prefixing command with: sudo\n", DEVICE_FILE_NAME);
-      printf("");
       exit(-1);
    }
    return file_desc;
