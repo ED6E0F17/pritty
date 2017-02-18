@@ -29,6 +29,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef __GPU_FFT__
 #define __GPU_FFT__
 
+#include "bcm_host.h"
+
 #define GPU_FFT_QPUS 8
 
 #define GPU_FFT_PI 3.14159265358979323846

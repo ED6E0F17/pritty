@@ -26,8 +26,6 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include <dlfcn.h>
-
 #include "gpu_fft.h"
 #include "mailbox.h"
 
@@ -55,10 +53,6 @@ struct GPU_FFT_HOST {
 };
 
 int gpu_fft_get_host_info(struct GPU_FFT_HOST *info) {
-    void *handle;
-    unsigned (*bcm_host_get_sdram_address)     (void);
-    unsigned (*bcm_host_get_peripheral_address)(void);
-    unsigned (*bcm_host_get_peripheral_size)   (void);
 
     // Pi 1 defaults
     info->peri_addr = 0x20000000;
@@ -66,22 +60,13 @@ int gpu_fft_get_host_info(struct GPU_FFT_HOST *info) {
     info->mem_flg = GPU_FFT_USE_VC4_L2_CACHE? 0xC : 0x4;
     info->mem_map = GPU_FFT_USE_VC4_L2_CACHE? 0x0 : 0x20000000; // Pi 1 only
 
-    handle = dlopen("libbcm_host.so", RTLD_LAZY);
-    if (!handle) return -1;
-
-    *(void **) (&bcm_host_get_sdram_address)      = dlsym(handle, "bcm_host_get_sdram_address");
-    *(void **) (&bcm_host_get_peripheral_address) = dlsym(handle, "bcm_host_get_peripheral_address");
-    *(void **) (&bcm_host_get_peripheral_size)    = dlsym(handle, "bcm_host_get_peripheral_size");
-
-    if (bcm_host_get_sdram_address && bcm_host_get_sdram_address()!=0x40000000) { // Pi 2?
+    if (bcm_host_get_sdram_address()!=0x40000000) { // Pi 2?
         info->mem_flg = 0x4; // ARM cannot see VC4 L2 on Pi 2
         info->mem_map = 0x0;
     }
 
-    if (bcm_host_get_peripheral_address) info->peri_addr = bcm_host_get_peripheral_address();
-    if (bcm_host_get_peripheral_size)    info->peri_size = bcm_host_get_peripheral_size();
-
-    dlclose(handle);
+    info->peri_addr = bcm_host_get_peripheral_address();
+    info->peri_size = bcm_host_get_peripheral_size();
     return 0;
 }
 
