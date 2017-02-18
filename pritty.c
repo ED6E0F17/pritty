@@ -34,13 +34,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mailbox.h"
 #include "gpu_fft.h"
+#include "blinkt.h"
 
 /*
  * 48khz IQ s16le
  * 512 element FFT for 94Hz frequency resolution
  * 300 baud = 160 samples per bit
 */
-
+#define I2Q2(i) (base[i].re * base[i].re +  base[i].im * base[i].im)
 
 char Usage[] =
 	"Usage: hello_fft.bin log2_N [jobs [loops]]\n"
@@ -55,7 +56,6 @@ unsigned Microseconds( void ) {
 }
 
 int main( int argc, char *argv[] ) {
-	int mb = mbox_open();
 	unsigned int i, j, jobs, N, log2_N, t[2];
 	struct GPU_FFT_COMPLEX *base;
 	struct GPU_FFT *fft;
@@ -65,7 +65,13 @@ int main( int argc, char *argv[] ) {
 
 	log2_N = 9;
 	jobs   = 4;  // oversample 4x per bit period
-	N = 1 << log2_N; // FFT length
+	N = 1 << log2_N; // FFT length 512
+
+	int mb = mbox_open(); // Will exit() on fail - run this first.
+	if (blinkt_setup() < 0) {
+		 printf( "Unable to setup blinkenlights: Install wiringPi.\n" );
+		 return -1;
+	}
 
 	int ret = gpu_fft_prepare( mb, GPU_FFT_FWD, jobs, &fft ); // call once
 	switch ( ret ) {
@@ -76,11 +82,13 @@ int main( int argc, char *argv[] ) {
 	case -5: printf( "Can't open libbcm_host.\n" );                                         return -1;
 	}
 
-	int freq = 50;
+	int freq = 16;
 	float raisedcos[256];
 	for ( j = 0; j < 256; j++ )
 		raisedcos[j] = 1.0f + cosf( GPU_FFT_PI * ((float)j / 128.0f - 1.0f) );
 	float I[N], Q[N];
+
+
 	for ( j = 0; j < N; j++ ) {
 		I[j] = sinf( 2.0 * GPU_FFT_PI * freq * j / N );
 		Q[j] = 0;
@@ -105,18 +113,22 @@ int main( int argc, char *argv[] ) {
 	unsigned int count = 0;
 	for (j=0; j<jobs; j++) {
 		base = fft->out + j*fft->step;
-		for ( i = 0; i < N; i++ ) {
-			float i2q2 = base[i].re * base[i].re +  base[i].im * base[i].im;
+		for ( i = 0; i < 96; i+=3 ) {
+			float i2q2 = I2Q2(i) + I2Q2(i + 1) + I2Q2(i + 2);
 			fftout[count++] = (unsigned int)sqrtf(i2q2);
 		}
 	} // output buffer
 
 	t[1] = Microseconds();
-	for ( i = 0; i < N; i++ )
-		printf ("%d,", fftout[i]);
+	for ( i = 0; i < 7; i++ ) {
+		uint8_t r = 255 & fftout[i + 3];
+		uint8_t g = 8;
+		blinkt_colour(i, r, g, 0);
+	}
+	show_blinkt();
 	printf( "\nFFT usecs = %d\n", ( t[1] - t[0] ) / jobs );
 
-
+	//blinkt_clear();
 	gpu_fft_release( fft ); // Videocore memory lost if not freed !
 	return 0;
 }
