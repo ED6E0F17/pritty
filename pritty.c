@@ -41,7 +41,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * 512 element FFT for 94Hz frequency resolution
  * 300 baud = 160 samples per bit
 */
-#define I2Q2(i) (base[i].re * base[i].re +  base[i].im * base[i].im)
+#define I2Q2( i ) ( base[i].re * base[i].re +  base[i].im * base[i].im )
 
 char Usage[] =
 	"Usage: hello_fft.bin log2_N [jobs [loops]]\n"
@@ -49,28 +49,23 @@ char Usage[] =
 	"jobs   = transforms per batch,   jobs>0,        default 1\n"
 	"loops  = number of test repeats, loops>0,       default 1\n";
 
-unsigned Microseconds( void ) {
-	struct timespec ts;
-	clock_gettime( CLOCK_REALTIME, &ts );
-	return ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
-}
 
 int main( int argc, char *argv[] ) {
-	unsigned int i, j, jobs, N, log2_N, t[2];
+	unsigned int i, j, jobs, N, log2_N;
 	struct GPU_FFT_COMPLEX *base;
 	struct GPU_FFT *fft;
 
-	for (int c = 1; c < argc; c++)
-		printf("Commandline arg:%s\n", argv[c]);
+	for ( int c = 1; c < argc; c++ )
+		printf( "Commandline arg:%s\n", argv[c] );
 
 	log2_N = 9;
 	jobs   = 4;  // oversample 4x per bit period
 	N = 1 << log2_N; // FFT length 512
 
 	int mb = mbox_open(); // Will exit() on fail - run this first.
-	if (blinkt_setup() < 0) {
-		 printf( "Unable to setup blinkenlights: Install wiringPi.\n" );
-		 return -1;
+	if ( blinkt_setup() < 0 ) {
+		printf( "Unable to setup blinkenlights: Install wiringPi.\n" );
+		return -1;
 	}
 
 	int ret = gpu_fft_prepare( mb, GPU_FFT_FWD, jobs, &fft ); // call once
@@ -82,53 +77,55 @@ int main( int argc, char *argv[] ) {
 	case -5: printf( "Can't open libbcm_host.\n" );                                         return -1;
 	}
 
-	int freq = 16;
+	int freq = 12;
 	float raisedcos[256];
 	for ( j = 0; j < 256; j++ )
-		raisedcos[j] = 1.0f + cosf( GPU_FFT_PI * ((float)j / 128.0f - 1.0f) );
-	float I[N], Q[N];
+		raisedcos[j] = 1.0f + cosf( GPU_FFT_PI * ( (float)j / 128.0f - 1.0f ) );
 
-
+	float I[N * 3], Q[N * 3];
 	for ( j = 0; j < N; j++ ) {
-		I[j] = sinf( 2.0 * GPU_FFT_PI * freq * j / N );
-		Q[j] = 0;
+		I[j] = I[j + 2 * N] = sinf( 2.0 * GPU_FFT_PI * freq * j / N );
+		Q[j + N] = sinf( 2.0 * GPU_FFT_PI * ( freq + 8 ) * j / N );
+		Q[j] = I[j + N] = Q[j + 2 * N] = 0;
 	}
 
-	usleep( 1 );   // Yield to OS
-	t[0] = Microseconds();
-
-	for ( j = 0; j < jobs; j++ ) {
-		base = fft->in + j * fft->step;   // input buffer
-		for ( i = 0; i < 256; i++ ) {
-			base[i].re = raisedcos[i] * I[i + 40 * j];
-			base[i + 256].re = 0;
-			base[i].im = raisedcos[i] * Q[i + 40 * j];
-			base[i + 256].im = 0;
+	unsigned int slider = 0;
+	while ( is_running() )  {
+		for ( j = 0; j < jobs; j++ ) {
+			base = fft->in + j * fft->step; // input buffer
+			for ( i = 0; i < 256; i++ ) {
+				base[i].re = raisedcos[i] * I[slider + i + 40 * j];
+				base[i + 256].re = 0;
+				base[i].im = raisedcos[i] * Q[slider + i + 40 * j];
+				base[i + 256].im = 0;
+			}
 		}
-	}
 
-	gpu_fft_execute( fft );   // call one or many times
+		gpu_fft_execute( fft ); // call one or many times
 
-	unsigned int fftout[N * jobs];
-	unsigned int count = 0;
-	for (j=0; j<jobs; j++) {
-		base = fft->out + j*fft->step;
-		for ( i = 0; i < 96; i+=3 ) {
-			float i2q2 = I2Q2(i) + I2Q2(i + 1) + I2Q2(i + 2);
-			fftout[count++] = (unsigned int)sqrtf(i2q2);
+		unsigned int fftout[N * jobs];
+		unsigned int count = 0;
+		for ( j = 0; j < jobs; j++ ) {
+			base = fft->out + j * fft->step;
+			for ( i = 0; i < 32; i += 3 ) {
+				float i2q2 = I2Q2( i ) + I2Q2( i + 1 ) + I2Q2( i + 2 );
+				fftout[count++] = (unsigned int)sqrtf( i2q2 );
+			}
+			for ( i = 0; i < 7; i++ ) {
+				uint8_t r = 255 & fftout[i + 3];
+				uint8_t g = 8;
+				blinkt_colour( i, r, g, 0 );
+			}
+			show_blinkt();
+			usleep( 300 * 1000 );
 		}
-	} // output buffer
+		slider += 160;
+		if ( slider > 2 * N ) {
+			slider = 0;
+		}
+	}  //do .. while
 
-	t[1] = Microseconds();
-	for ( i = 0; i < 7; i++ ) {
-		uint8_t r = 255 & fftout[i + 3];
-		uint8_t g = 8;
-		blinkt_colour(i, r, g, 0);
-	}
-	show_blinkt();
-	printf( "\nFFT usecs = %d\n", ( t[1] - t[0] ) / jobs );
-
-	//blinkt_clear();
+	clear_blinkt();
 	gpu_fft_release( fft ); // Videocore memory lost if not freed !
 	return 0;
 }

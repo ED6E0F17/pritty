@@ -111,7 +111,7 @@ int start_blinkt() {
 	return 1;
 }
 
-void blinkt_clear(void) {
+void clear_blinkt(void) {
 	uint8_t x;
 	for(x = 0; x < BLINKT_LEDS; x++)
 		leds[x] = DEFAULT_BRIGHTNESS;

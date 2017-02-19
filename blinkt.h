@@ -5,5 +5,6 @@ int is_running(void);
 int blinkt_setup(void);
 int start_blinkt(void);
 int start_rainbow(void);
+void clear_blinkt(void);
 void show_blinkt(void);
 void show_rainbow(void);
