@@ -46,7 +46,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define GPU_FFT_USE_VC4_L2_CACHE 0 // Pi 1 only: cached=1; direct=0
 
 #define GPU_FFT_NO_FLUSH 1
-#define GPU_FFT_TIMEOUT 2000 // ms
+#define GPU_FFT_TIMEOUT 200 // ms
 
 struct GPU_FFT_HOST {
     unsigned mem_flg, mem_map, peri_addr, peri_size;
@@ -74,7 +74,7 @@ unsigned gpu_fft_base_exec_direct (
     struct GPU_FFT_BASE *base,
     unsigned num_qpus) {
 
-    unsigned q;
+    unsigned q, abort;
 
     base->peri[V3D_DBCFG] = 0; // Disallow IRQ
     base->peri[V3D_DBQITE] = 0; // Disable IRQ
@@ -91,7 +91,8 @@ unsigned gpu_fft_base_exec_direct (
     }
 
     // Busy wait polling
-    for (;;) {
+    for (abort = 0; abort < 10; abort++) {
+	usleep(100);
         if (((base->peri[V3D_SRQCS]>>16) & 0xff) == num_qpus) break; // All done?
     }
 
